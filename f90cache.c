@@ -217,8 +217,9 @@ static void to_cache(ARGS *args)
         free(mod_include);
     }
 
-    /* we can remove all preprocessing flags */
-    args_strip(args,"-D");
+    /* keep -D: required when compiling directly (.f, .f90 etc.) since
+       preprocessing is skipped, and harmless when compiling from a
+       preprocessed file */
     status = execute(args->argv, tmp_stdout, tmp_stderr);
 
     if (!mod_file_only) {
@@ -539,8 +540,7 @@ static void find_hash( ARGS *args )
 	   at all, or they only affect linking */
 	if (i < args->argc-1) {
 	    if (strcmp(args->argv[i], "-I") == 0 ||
-		strcmp(args->argv[i], "-L") == 0 ||
-		strcmp(args->argv[i], "-D") == 0) {
+		strcmp(args->argv[i], "-L") == 0) {
 		i++; /* skip also next arg */
 		continue;
 	    }
@@ -559,7 +559,6 @@ static void find_hash( ARGS *args )
 
 	if (strncmp(args->argv[i], "-I", 2) == 0 ||
 	    strncmp(args->argv[i], "-L", 2) == 0 ||
-	    strncmp(args->argv[i], "-D", 2) == 0 ||
 	    strcmp(args->argv[i], "-fsyntax-only") == 0) {
 	    continue;
 	}
