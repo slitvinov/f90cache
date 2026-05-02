@@ -6,15 +6,16 @@ bindir = $(PREFIX)/bin
 mandir = $(PREFIX)/share/man
 
 OBJS = f90cache.o mdfour.o hash.o execute.o util.o args.o stats.o cleanup.o snprintf.o
-HEADERS = f90cache.h mdfour.h config.h
+
+.SUFFIXES: .c .o
 
 all: f90cache
 
 f90cache: $(OBJS)
-	$(CC) $(CFLAGS) -o $@ $(OBJS)
+	$(CC) $(CFLAGS) -o f90cache $(OBJS)
 
-%.o: %.c $(HEADERS)
-	$(CC) -I. $(CFLAGS) -c -o $@ $<
+.c.o:
+	$(CC) -I. $(CFLAGS) -c $<
 
 install: f90cache
 	install -d $(DESTDIR)$(bindir)
@@ -25,4 +26,4 @@ install: f90cache
 clean:
 	rm -f $(OBJS) f90cache
 
-.PHONY: all install clean
+$(OBJS): f90cache.h mdfour.h config.h
