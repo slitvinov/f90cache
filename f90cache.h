@@ -31,11 +31,13 @@
 
 /* the f90 compiler type:
  * 0          : (not yet identified)
- * GNU_GFC    : GCC gfortran		version = 4.4 to 9
+ * GNU_GFC    : GCC gfortran		version >= 4.4
  * INTEL_IFC  : INTEL ifort		version = 9 to 16
+ * LLVM_FLANG : LLVM flang		any version
  */
 #define GNU_GFC    1
 #define INTEL_IFC  2
+#define LLVM_FLANG 3
 
 #define LIMIT_MULTIPLE 0.8
 

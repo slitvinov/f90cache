@@ -188,9 +188,9 @@ static void to_cache(ARGS *args)
        -> the flag work also for submodule files */
     switch (f90_compiler_type) {
 	case GNU_GFC:
-	    /* -J flag works with 4.3, but it is an alias of -M
-		which is not supported here. Therefore, we require
-		that gfortran is at least 4.4 */
+	case LLVM_FLANG:
+	    /* gfortran and LLVM flang both accept -J<dir> for the module
+	       output directory. */
 	    x_asprintf(&mod_to, "-J%s", mod_dir);
 	    args_add(args, mod_to);
 	    free(mod_to);
@@ -546,7 +546,7 @@ static void find_hash( ARGS *args )
 	    }
 	}
 
-	if (f90_compiler_type==GNU_GFC) {
+	if (f90_compiler_type==GNU_GFC || f90_compiler_type==LLVM_FLANG) {
 	    if (i < args->argc-1) {
 		if (strcmp(args->argv[i], "-include") == 0 ||
 		    strcmp(args->argv[i], "-idirafter") == 0 ||
@@ -563,7 +563,7 @@ static void find_hash( ARGS *args )
 	    continue;
 	}
 
-	if (f90_compiler_type==GNU_GFC) {
+	if (f90_compiler_type==GNU_GFC || f90_compiler_type==LLVM_FLANG) {
 	    if (strncmp(args->argv[i], "-idirafter", 10) == 0 ||
 		strncmp(args->argv[i], "-isystem", 8) == 0) {
 		continue;
@@ -1074,7 +1074,7 @@ static void process_args(int argc, char **argv)
 
 
 	/* where the output precompiled (sub)module file must go */
-	if (f90_compiler_type==GNU_GFC) {
+	if (f90_compiler_type==GNU_GFC || f90_compiler_type==LLVM_FLANG) {
 	    if (strncmp(argv[i], "-J", 2) == 0) {
 		output_dir_mod = &argv[i][2];
 		continue;
@@ -1130,7 +1130,7 @@ static void process_args(int argc, char **argv)
 	}
 
 	/* options that take an argument */
-	if (f90_compiler_type==GNU_GFC) {
+	if (f90_compiler_type==GNU_GFC || f90_compiler_type==LLVM_FLANG) {
 	    const char *opts[] = {"-I", "-L", "-D", "-U", "-Xlinker",
 				  "-fintrinsic-modules-path",
 				  NULL};
@@ -1323,6 +1323,10 @@ static void f90cache_driver(int argc, char *argv[])
 	free(compiler_path);
     } else if (strncmp(compiler_name, "ifort", 5) == 0) {
 	f90_compiler_type = INTEL_IFC;
+    } else if (strncmp(compiler_name, "flang", 5) == 0) {
+	/* LLVM flang accepts gfortran-style flags, but does not
+	   support -dumpfullversion. Skip the version probe. */
+	f90_compiler_type = LLVM_FLANG;
     } else {
 	printf("(%s:) Fortran 90 compiler not supported: %s\n",MYNAME,compiler_name);
 	fc_log("Unsupported compiler: %s\n", compiler_name);
