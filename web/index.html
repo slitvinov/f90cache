@@ -1,0 +1,101 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<HTML>
+<HEAD>
+<TITLE>f90cache</TITLE>
+</HEAD>
+
+<BODY>
+
+<HR>
+<CENTER> <H3>f90cache</H3> </CENTER>
+<HR>
+
+f90cache is a compiler cache. It acts as a caching pre-processor to
+Fortran compilers, using the -E compiler switch and a hash to detect
+when a compilation can be satisfied from cache. This often results in
+a great speedup in common compilations.<p>
+
+The idea came from Andrew Tridgell who wrote the original ccache program.
+See also this
+<a href="https://perso.univ-rennes1.fr/edouard.canot/ccache/"><u>link</u></a>
+for a personal version of ccache which support many different compilers.
+However, see also the recent releases of ccache
+<a href="http://ccache.samba.org/"><u>here</u></a>.
+<p>
+
+<h2>Latest release</h2>
+
+The latest release is f90cache 0.99c (May 2019).
+<br>
+
+<p>It works with the following Linux Fortran compilers:
+<ul>
+  <li>GNU gfortran, release 4.4 to 9
+  <li>INTEL ifort, version 9 to 16
+</ul>
+According to its name, this tool is of course compatible with all features
+of the Fortran 90 Standard. Moreover, it supports the Fortran 2008 submodule
+facility (introduced from version 6 of GNU Fortran, and from version 16 of
+INTEL Fortran).
+
+<h2>Why bother?</h2>
+
+Why bother with a compiler cache? If you ever run "make clean; make"
+then you can probably benefit from f90cache. It is very common for
+developers to do a clean build of a project for a whole host of
+reasons, and this throws away all the information from your previous
+compiles.<p>
+
+By using f90cache you can get exactly the same effect as "make clean;
+make" but much faster.<p>
+
+<h2>Is it safe?</h2>
+
+Yes. The most important aspect of a compiler cache is to <b>always</b>
+produce exactly the same output that the real compiler would
+produce. The includes providing exactly the same object files and
+exactly the same compiler warnings that would be produced if you use
+the real compiler. The only way you should be able to tell that you
+are using f90cache is the speed.<p>
+
+<h2>Features</h2>
+
+<ul>
+<li> keeps statistics on hits/misses
+<li> automatic cache size management
+<li> can cache compiles that generate warnings, as well as precompiled
+     (sub)module files
+</ul>
+
+<h2>Documentation</h2>
+
+See the <a href="f90cache-man.html"><u>manual page</u></a>
+
+<h2>How to use it</h2>
+
+You can use f90cache in two ways. The first is just to prefix your
+compile commands with "f90cache". For example, you could change the
+"F90C=gfortran" line in your Makefile to be "F90C=f90cache gfortran".<p>
+
+Alternatively, you can create symbolic links from your compilers name
+to f90cache. This allows you to use f90cache without any changes to your
+build system.
+
+<h2>Download</h2>
+
+You can download the latest release from this <a href="f90cache-0.99c.tar.gz">
+<u>archive</u></a>.
+
+<hr>
+
+Last page modification: 2019-05-12
+<br>
+<br>
+
+<tiny>
+<a href="https://perso.univ-rennes1.fr/edouard.canot/"><u>Édouard Canot web page</u></a><br>
+mail: Edouard.Canot@univ-rennes1.fr
+</tiny>
+
+</BODY>
+</HTML>
