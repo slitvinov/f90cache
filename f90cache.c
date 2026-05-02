@@ -66,6 +66,10 @@ static struct {
     {NULL, NULL}
 };
 
+/* directories from -I flags, used to resolve Fortran INCLUDE files */
+static char **include_dirs = NULL;
+static int n_include_dirs = 0;
+
 /* the f90 compiler type: see f90cache.h */
 static int f90_compiler_type = 0;
 
@@ -359,6 +363,148 @@ static void to_cache(ARGS *args)
     free(path_stderr);
 }
 
+/* track an -I directory for resolving Fortran INCLUDE files */
+static void add_include_dir(const char *dir)
+{
+    int i;
+    if (!dir || !*dir) return;
+    for (i = 0; i < n_include_dirs; i++) {
+	if (strcmp(include_dirs[i], dir) == 0) return;
+    }
+    include_dirs = (char **) x_realloc(include_dirs,
+				       sizeof(char *) * (n_include_dirs + 1));
+    include_dirs[n_include_dirs++] = x_strdup(dir);
+}
+
+/* try to open `name` resolved against `base_dir`, then each -I dir.
+   on success returns a malloc'd absolute-ish path and the open FILE*. */
+static FILE *open_include_file(const char *name, const char *base_dir,
+			       char **resolved_path)
+{
+    FILE *fp;
+    char *path;
+    int i;
+
+    if (name[0] == '/') {
+	fp = fopen(name, "r");
+	if (fp) {
+	    *resolved_path = x_strdup(name);
+	    return fp;
+	}
+	return NULL;
+    }
+
+    if (base_dir) {
+	x_asprintf(&path, "%s/%s", base_dir, name);
+	fp = fopen(path, "r");
+	if (fp) {
+	    *resolved_path = path;
+	    return fp;
+	}
+	free(path);
+    }
+
+    for (i = 0; i < n_include_dirs; i++) {
+	x_asprintf(&path, "%s/%s", include_dirs[i], name);
+	fp = fopen(path, "r");
+	if (fp) {
+	    *resolved_path = path;
+	    return fp;
+	}
+	free(path);
+    }
+
+    return NULL;
+}
+
+/* extract the filename from a Fortran INCLUDE statement on `line`,
+   honoring fixed-form column-1 comments. on match, *out is malloc'd
+   filename; returns 1, else 0. */
+static int parse_fortran_include(const char *line, char **out)
+{
+    const char *p = line;
+    char c0 = line[0];
+    char quote;
+    const char *q;
+
+    /* skip fixed-form comment lines (col 1: c, C, *, !) */
+    if (c0 == 'c' || c0 == 'C' || c0 == '*' || c0 == '!') return 0;
+
+    /* skip leading whitespace */
+    while (*p == ' ' || *p == '\t') p++;
+    if (*p == '!') return 0;
+    if (*p == '\0') return 0;
+
+    /* match "include" case-insensitively */
+    if (strncasecmp(p, "include", 7) != 0) return 0;
+    p += 7;
+    if (*p != ' ' && *p != '\t' && *p != '\'' && *p != '"') return 0;
+    while (*p == ' ' || *p == '\t') p++;
+
+    if (*p != '\'' && *p != '"') return 0;
+    quote = *p++;
+    q = strchr(p, quote);
+    if (!q || q == p) return 0;
+
+    *out = x_malloc(q - p + 1);
+    memcpy(*out, p, q - p);
+    (*out)[q - p] = '\0';
+    return 1;
+}
+
+/* hash file `fname` and recursively hash any Fortran INCLUDE files it
+   references. `visited` and `nvisited` track files already hashed. */
+static void hash_fortran_includes(const char *fname,
+				  char ***visited, int *nvisited)
+{
+    FILE *fp;
+    char line[4096];
+    char *base_dir = NULL;
+    const char *slash;
+    int i;
+
+    for (i = 0; i < *nvisited; i++) {
+	if (strcmp((*visited)[i], fname) == 0) return;
+    }
+    *visited = (char **) x_realloc(*visited, sizeof(char *) * (*nvisited + 1));
+    (*visited)[(*nvisited)++] = x_strdup(fname);
+
+    fp = fopen(fname, "r");
+    if (!fp) return;
+
+    slash = strrchr(fname, '/');
+    if (slash) {
+	int len = slash - fname;
+	base_dir = x_malloc(len + 1);
+	memcpy(base_dir, fname, len);
+	base_dir[len] = '\0';
+    }
+
+    while (fgets(line, sizeof(line), fp)) {
+	char *inc_name;
+	char *resolved;
+	FILE *inc_fp;
+
+	if (!parse_fortran_include(line, &inc_name)) continue;
+
+	inc_fp = open_include_file(inc_name, base_dir, &resolved);
+	if (!inc_fp) {
+	    fc_log("INCLUDE '%s' not found from %s\n", inc_name, fname);
+	    free(inc_name);
+	    continue;
+	}
+	fclose(inc_fp);
+	free(inc_name);
+
+	hash_file(resolved);
+	hash_fortran_includes(resolved, visited, nvisited);
+	free(resolved);
+    }
+
+    fclose(fp);
+    free(base_dir);
+}
+
 /* find the hash for a command. The hash includes most of arguments,
    plus the output from running the compiler with -E */
 static void find_hash( ARGS *args )
@@ -576,6 +722,17 @@ static void find_hash( ARGS *args )
 
     hash_file(path_stdout);
     hash_file(path_stderr);
+
+    /* hash transitively-INCLUDE'd Fortran files (gfortran -E does not
+       expand `INCLUDE 'X'`, so we must walk them ourselves) */
+    {
+	char **visited = NULL;
+	int nvisited = 0;
+	int j;
+	hash_fortran_includes(input_file, &visited, &nvisited);
+	for (j = 0; j < nvisited; j++) free(visited[j]);
+	free(visited);
+    }
 
     if (direct_i_file) {
 	if (asprintf(&i_tmpfile, "%s", path_stdout) == -1) {
@@ -849,6 +1006,15 @@ static void process_args(int argc, char **argv)
     depmod_list = args_init(0, NULL);
 
     args_add(stripped_args, argv[0]);
+
+    /* collect -I directories so we can resolve Fortran INCLUDE files */
+    for (i=1; i<argc; i++) {
+	if (strcmp(argv[i], "-I") == 0 && i+1 < argc) {
+	    add_include_dir(argv[i+1]);
+	} else if (strncmp(argv[i], "-I", 2) == 0 && argv[i][2] != '\0') {
+	    add_include_dir(argv[i]+2);
+	}
+    }
 
     for (i=1; i<argc; i++) {
 	/* some options will never work ... */
@@ -1127,34 +1293,23 @@ static void f90cache_driver(int argc, char *argv[])
 	compiler_path = dirname(orig_args->argv[0]);
 	compiler_fullname = orig_args->argv[0];
 
-	/* find GNU_MAJOR_VERSION_NUM */
-	x_asprintf(&command,"%s --version | sed -n 1p | sed -n '/^[^0-9]*\\([0-9]\\).*/ s//\\1/p'",compiler_fullname);
+	/* find GNU major/minor via -dumpfullversion (modern gfortran),
+	   falling back to -dumpversion for older releases */
+	x_asprintf(&command,"%s -dumpfullversion -dumpversion 2>/dev/null",compiler_fullname);
 	fp = popen(command, "r");
 	if (fp == NULL) {
-	    printf("Failed to get GNU_MAJOR_VERSION_NUM\n" );
+	    printf("Failed to get gfortran version\n" );
 	    exit(1);
 	}
-	if (fscanf( fp, "%i", &GNU_MAJOR_VERSION_NUM) == -1) {
-	    fatal("Failed to read GNU_MAJOR_VERSION_NUM from shell command");
+	if (fscanf( fp, "%i.%i", &GNU_MAJOR_VERSION_NUM, &GNU_MINOR_VERSION_NUM) < 1) {
+	    fatal("Failed to read gfortran version");
 	}
 	pclose(fp);
-	/* GNU major version must be 4 to 9 */
-	if (GNU_MAJOR_VERSION_NUM<4 || 9<GNU_MAJOR_VERSION_NUM) {
-	    printf("(%s:) *** the major version number of gfortran must be ranged from 4 to 9!\n",MYNAME);
+	/* GNU major version must be 4 or higher */
+	if (GNU_MAJOR_VERSION_NUM<4) {
+	    printf("(%s:) *** the major version number of gfortran must be >= 4!\n",MYNAME);
 	    exit(1);
 	}
-
-	/* find GNU_MINOR_VERSION_NUM */
-	x_asprintf(&command,"%s --version | sed -n 1p | sed -n '/^[^0-9]*[0-9]\\.\\([0-9]\\).*/ s//\\1/p'",compiler_fullname);
-	fp = popen(command, "r");
-	if (fp == NULL) {
-	    printf("Failed to get GNU_MINOR_VERSION_NUM\n" );
-	    exit(1);
-	}
-	if (fscanf( fp, "%i", &GNU_MINOR_VERSION_NUM) == -1) {
-	    fatal("Failed to read GNU_MINOR_VERSION_NUM from shell command");
-	}
-	pclose(fp);
 	/* GNU gfortran version must be >= 4.4 */
 	if (GNU_MAJOR_VERSION_NUM==4) {
 	    if (GNU_MINOR_VERSION_NUM<4) {
